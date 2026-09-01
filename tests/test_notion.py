@@ -75,6 +75,7 @@ def test_create_page_maps_course_item_fields_to_notion_properties() -> None:
         == "https://bcourses.berkeley.edu/courses/1/assignments/42"
     )
     assert properties["Confidence"]["select"]["name"] == "direct"
+    assert properties["Archived"]["checkbox"] is False
     assert "Status" not in properties
 
 
@@ -89,3 +90,60 @@ def test_create_page_sends_auth_and_notion_version_headers() -> None:
     headers = route.calls.last.request.headers
     assert headers["Authorization"] == f"Bearer {TOKEN}"
     assert headers["Notion-Version"] == "2022-06-28"
+
+
+@respx.mock
+def test_update_page_patches_the_given_page_id() -> None:
+    route = respx.patch("https://api.notion.com/v1/pages/page-xyz-789").mock(
+        return_value=httpx.Response(200, json={"id": "page-xyz-789"})
+    )
+
+    make_client().update_page("page-xyz-789", make_item())
+
+    assert route.called
+
+
+@respx.mock
+def test_update_page_maps_course_item_fields_to_notion_properties() -> None:
+    route = respx.patch("https://api.notion.com/v1/pages/page-xyz-789").mock(
+        return_value=httpx.Response(200, json={"id": "page-xyz-789"})
+    )
+
+    make_client().update_page("page-xyz-789", make_item())
+
+    import json
+
+    payload = json.loads(route.calls.last.request.content)
+    properties = payload["properties"]
+    assert properties["Title"]["title"][0]["text"]["content"] == "Homework 3"
+    assert properties["Due Date"]["date"]["start"] == "2026-09-15T23:59:00+00:00"
+
+
+@respx.mock
+def test_update_page_marks_the_archived_property_false() -> None:
+    route = respx.patch("https://api.notion.com/v1/pages/page-xyz-789").mock(
+        return_value=httpx.Response(200, json={"id": "page-xyz-789"})
+    )
+
+    make_client().update_page("page-xyz-789", make_item())
+
+    import json
+
+    payload = json.loads(route.calls.last.request.content)
+    assert payload["properties"]["Archived"]["checkbox"] is False
+    assert "archived" not in payload
+
+
+@respx.mock
+def test_archive_page_sets_the_archived_property_true_without_trashing_the_page() -> None:
+    route = respx.patch("https://api.notion.com/v1/pages/page-xyz-789").mock(
+        return_value=httpx.Response(200, json={"id": "page-xyz-789"})
+    )
+
+    make_client().archive_page("page-xyz-789")
+
+    import json
+
+    payload = json.loads(route.calls.last.request.content)
+    assert payload == {"properties": {"Archived": {"checkbox": True}}}
+    assert "archived" not in payload

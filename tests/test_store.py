@@ -73,3 +73,88 @@ def test_distinct_items_are_tracked_independently(tmp_path: Path) -> None:
     store.insert(item_b, notion_page_id="notion-page-2")
 
     assert store.existing_ids() == {item_a.id, item_b.id}
+
+
+def test_inserted_item_is_active(tmp_path: Path) -> None:
+    store = Store(tmp_path / "coursepilot.db")
+    item = make_item()
+
+    store.insert(item, notion_page_id="notion-page-1")
+
+    stored = store.get(item.id)
+    assert stored is not None
+    assert stored.active is True
+
+
+def test_update_changes_fields_and_stamps_last_synced_at(tmp_path: Path) -> None:
+    store = Store(tmp_path / "coursepilot.db")
+    item = make_item()
+    store.insert(item, notion_page_id="notion-page-1")
+    changed = item.model_copy(update={"title": "Homework 3 (revised)"})
+
+    store.update(changed)
+    stored = store.get(item.id)
+
+    assert stored is not None
+    assert stored.item.title == "Homework 3 (revised)"
+    assert stored.notion_page_id == "notion-page-1"
+    assert stored.last_synced_at is not None
+
+
+def test_update_leaves_notion_page_id_untouched(tmp_path: Path) -> None:
+    store = Store(tmp_path / "coursepilot.db")
+    item = make_item()
+    store.insert(item, notion_page_id="notion-page-1")
+
+    store.update(item)
+    stored = store.get(item.id)
+
+    assert stored is not None
+    assert stored.notion_page_id == "notion-page-1"
+
+
+def test_archive_marks_item_inactive_and_stamps_last_synced_at(tmp_path: Path) -> None:
+    store = Store(tmp_path / "coursepilot.db")
+    item = make_item()
+    store.insert(item, notion_page_id="notion-page-1")
+
+    store.archive(item.id)
+    stored = store.get(item.id)
+
+    assert stored is not None
+    assert stored.active is False
+    assert stored.last_synced_at is not None
+
+
+def test_update_reactivates_an_archived_item(tmp_path: Path) -> None:
+    store = Store(tmp_path / "coursepilot.db")
+    item = make_item()
+    store.insert(item, notion_page_id="notion-page-1")
+    store.archive(item.id)
+
+    store.update(item)
+    stored = store.get(item.id)
+
+    assert stored is not None
+    assert stored.active is True
+
+
+def test_active_ids_only_returns_active_items_for_the_given_source(tmp_path: Path) -> None:
+    store = Store(tmp_path / "coursepilot.db")
+    active_item = make_item("https://example.test/a/1")
+    archived_item = make_item("https://example.test/a/2")
+    store.insert(active_item, notion_page_id="notion-page-1")
+    store.insert(archived_item, notion_page_id="notion-page-2")
+    store.archive(archived_item.id)
+
+    ids = store.active_ids(source="canvas")
+
+    assert ids == {active_item.id}
+
+
+def test_active_ids_excludes_other_sources(tmp_path: Path) -> None:
+    store = Store(tmp_path / "coursepilot.db")
+    item = make_item()
+    store.insert(item, notion_page_id="notion-page-1")
+
+    assert store.active_ids(source="raw_site") == set()

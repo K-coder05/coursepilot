@@ -14,7 +14,11 @@ app = typer.Typer()
 
 
 def format_summary(result: RunResult) -> str:
-    return f"Inserted {result.inserted} of {result.total} items ({result.skipped} already synced)."
+    return (
+        f"{result.total} items: {result.inserted} inserted, {result.updated} updated, "
+        f"{result.archived} archived, {result.reactivated} reactivated, "
+        f"{result.skipped} skipped."
+    )
 
 
 @app.command()

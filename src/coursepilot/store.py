@@ -17,15 +17,33 @@ CREATE TABLE IF NOT EXISTS course_items (
     content_hash TEXT NOT NULL,
     last_synced_at TEXT NOT NULL,
     extraction_confidence TEXT NOT NULL,
-    notion_page_id TEXT NOT NULL
+    notion_page_id TEXT NOT NULL,
+    active INTEGER NOT NULL DEFAULT 1
 )
 """
+
+
+def _synced_row_fields(item: CourseItem) -> tuple[str, str, str, str, str, str, str, str, str]:
+    """Stamp last_synced_at to now and return the field tuple insert/update share."""
+    synced_item = item.model_copy(update={"last_synced_at": datetime.now(timezone.utc)})
+    return (
+        synced_item.course,
+        synced_item.title,
+        synced_item.item_type,
+        synced_item.due_date.isoformat(),
+        synced_item.source,
+        synced_item.source_url,
+        synced_item.content_hash,
+        synced_item.last_synced_at.isoformat() if synced_item.last_synced_at else "",
+        synced_item.extraction_confidence,
+    )
 
 
 @dataclass(frozen=True)
 class StoredCourseItem:
     item: CourseItem
     notion_page_id: str
+    active: bool
 
     @property
     def last_synced_at(self) -> datetime | None:
@@ -45,7 +63,6 @@ class Store:
         return {row[0] for row in rows}
 
     def insert(self, item: CourseItem, *, notion_page_id: str) -> None:
-        synced_item = item.model_copy(update={"last_synced_at": datetime.now(timezone.utc)})
         with self._conn:
             self._conn.execute(
                 """
@@ -54,28 +71,14 @@ class Store:
                     content_hash, last_synced_at, extraction_confidence, notion_page_id
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                (
-                    synced_item.id,
-                    synced_item.course,
-                    synced_item.title,
-                    synced_item.item_type,
-                    synced_item.due_date.isoformat(),
-                    synced_item.source,
-                    synced_item.source_url,
-                    synced_item.content_hash,
-                    synced_item.last_synced_at.isoformat()
-                    if synced_item.last_synced_at
-                    else None,
-                    synced_item.extraction_confidence,
-                    notion_page_id,
-                ),
+                (item.id, *_synced_row_fields(item), notion_page_id),
             )
 
     def get(self, item_id: str) -> StoredCourseItem | None:
         row = self._conn.execute(
             """
             SELECT course, title, item_type, due_date, source, source_url,
-                   content_hash, last_synced_at, extraction_confidence, notion_page_id
+                   content_hash, last_synced_at, extraction_confidence, notion_page_id, active
             FROM course_items WHERE id = ?
             """,
             (item_id,),
@@ -93,6 +96,7 @@ class Store:
             last_synced_at,
             extraction_confidence,
             notion_page_id,
+            active,
         ) = row
         item = CourseItem(
             id=item_id,
@@ -106,7 +110,35 @@ class Store:
             last_synced_at=datetime.fromisoformat(last_synced_at),
             extraction_confidence=extraction_confidence,
         )
-        return StoredCourseItem(item=item, notion_page_id=notion_page_id)
+        return StoredCourseItem(item=item, notion_page_id=notion_page_id, active=bool(active))
+
+    def update(self, item: CourseItem) -> None:
+        """Update a stored item's fields in place and reactivate it if archived."""
+        with self._conn:
+            self._conn.execute(
+                """
+                UPDATE course_items
+                SET course = ?, title = ?, item_type = ?, due_date = ?, source = ?,
+                    source_url = ?, content_hash = ?, last_synced_at = ?,
+                    extraction_confidence = ?, active = 1
+                WHERE id = ?
+                """,
+                (*_synced_row_fields(item), item.id),
+            )
+
+    def archive(self, item_id: str) -> None:
+        with self._conn:
+            self._conn.execute(
+                "UPDATE course_items SET active = 0, last_synced_at = ? WHERE id = ?",
+                (datetime.now(timezone.utc).isoformat(), item_id),
+            )
+
+    def active_ids(self, *, source: str) -> set[str]:
+        rows = self._conn.execute(
+            "SELECT id FROM course_items WHERE active = 1 AND source = ?",
+            (source,),
+        ).fetchall()
+        return {row[0] for row in rows}
 
     def close(self) -> None:
         self._conn.close()
