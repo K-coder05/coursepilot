@@ -139,6 +139,45 @@ def test_fetch_course_items_maps_calendar_event_to_exam() -> None:
 
 
 @respx.mock
+def test_fetch_course_items_excludes_calendar_events_already_covered_by_an_assignment() -> None:
+    respx.get(f"{BASE_URL}/api/v1/courses/{COURSE_ID}").mock(
+        return_value=httpx.Response(200, json={"course_code": "DATA C104-LEC-001"})
+    )
+    respx.get(f"{BASE_URL}/api/v1/courses/{COURSE_ID}/assignments").mock(
+        return_value=httpx.Response(
+            200,
+            json=[
+                {
+                    "id": 45,
+                    "name": "Midterm 1",
+                    "due_at": "2026-10-01T17:00:00Z",
+                    "html_url": f"{BASE_URL}/courses/1/assignments/45",
+                    "submission_types": ["online_upload"],
+                }
+            ],
+        )
+    )
+    respx.get(f"{BASE_URL}/api/v1/calendar_events").mock(
+        return_value=httpx.Response(
+            200,
+            json=[
+                {
+                    "id": 900,
+                    "title": "Midterm 1",
+                    "start_at": "2026-10-01T17:00:00Z",
+                    "html_url": f"{BASE_URL}/calendar?event_id=900",
+                }
+            ],
+        )
+    )
+
+    items = make_client().fetch_course_items()
+
+    assert len(items) == 1
+    assert items[0].source_url == f"{BASE_URL}/courses/1/assignments/45"
+
+
+@respx.mock
 def test_fetch_course_items_skips_calendar_events_without_start_at() -> None:
     respx.get(f"{BASE_URL}/api/v1/courses/{COURSE_ID}").mock(
         return_value=httpx.Response(200, json={"course_code": "DATA C104-LEC-001"})

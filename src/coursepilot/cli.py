@@ -6,7 +6,8 @@ from dotenv import load_dotenv
 from coursepilot.canvas import CanvasClient
 from coursepilot.config import Config
 from coursepilot.notion import NotionClient
-from coursepilot.run import RunResult, run
+from coursepilot.run import RunResult
+from coursepilot.run import run as run_pipeline
 from coursepilot.store import Store
 
 app = typer.Typer()
@@ -17,7 +18,7 @@ def format_summary(result: RunResult) -> str:
 
 
 @app.command()
-def sync() -> None:
+def run() -> None:
     """Fetch Canvas assignments/exams and insert any new ones into Notion."""
     load_dotenv()
     try:
@@ -36,7 +37,7 @@ def sync() -> None:
     )
     store = Store(config.db_path)
 
-    result = run(canvas_client=canvas_client, store=store, notion_client=notion_client)
+    result = run_pipeline(canvas_client=canvas_client, store=store, notion_client=notion_client)
     typer.echo(format_summary(result))
 
 
