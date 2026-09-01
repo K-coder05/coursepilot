@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from datetime import datetime
 from typing import Any
 
@@ -18,11 +19,10 @@ class CanvasClient:
 
     def fetch_course_items(self) -> list[CourseItem]:
         course_code = self._fetch_course_code()
-        items = [
-            *self._fetch_assignments(course_code),
-            *self._fetch_exam_calendar_events(course_code),
-        ]
-        return items
+        assignments = self._fetch_assignments(course_code)
+        assignment_titles = {item.title for item in assignments}
+        exams = self._fetch_exam_calendar_events(course_code, exclude_titles=assignment_titles)
+        return [*assignments, *exams]
 
     def _fetch_course_code(self) -> str:
         response = self._client.get(f"/api/v1/courses/{self._course_id}")
@@ -31,46 +31,31 @@ class CanvasClient:
         return course_code
 
     def _fetch_assignments(self, course_code: str) -> list[CourseItem]:
-        items = []
-        for assignment in self._paginate(f"/api/v1/courses/{self._course_id}/assignments"):
-            due_at = assignment.get("due_at")
-            if due_at is None:
-                continue
-            items.append(
-                CourseItem.build(
-                    course=course_code,
-                    title=assignment["name"],
-                    item_type=_classify_assignment(assignment),
-                    due_date=datetime.fromisoformat(due_at),
-                    source="canvas",
-                    source_url=assignment["html_url"],
-                    extraction_confidence="direct",
-                )
-            )
-        return items
+        raw_assignments = self._paginate(f"/api/v1/courses/{self._course_id}/assignments")
+        return _map_to_course_items(
+            raw_assignments,
+            course_code=course_code,
+            title_key="name",
+            date_key="due_at",
+            item_type_of=_classify_assignment,
+        )
 
-    def _fetch_exam_calendar_events(self, course_code: str) -> list[CourseItem]:
-        items = []
+    def _fetch_exam_calendar_events(
+        self, course_code: str, *, exclude_titles: set[str]
+    ) -> list[CourseItem]:
         params = {
             "type": "event",
             "context_codes[]": f"course_{self._course_id}",
         }
-        for event in self._paginate("/api/v1/calendar_events", params=params):
-            start_at = event.get("start_at")
-            if start_at is None:
-                continue
-            items.append(
-                CourseItem.build(
-                    course=course_code,
-                    title=event["title"],
-                    item_type="exam",
-                    due_date=datetime.fromisoformat(start_at),
-                    source="canvas",
-                    source_url=event["html_url"],
-                    extraction_confidence="direct",
-                )
-            )
-        return items
+        raw_events = self._paginate("/api/v1/calendar_events", params=params)
+        raw_events = [event for event in raw_events if event.get("title") not in exclude_titles]
+        return _map_to_course_items(
+            raw_events,
+            course_code=course_code,
+            title_key="title",
+            date_key="start_at",
+            item_type_of=lambda _: "exam",
+        )
 
     def _paginate(
         self, url: str, params: dict[str, str] | None = None
@@ -87,10 +72,35 @@ class CanvasClient:
         return results
 
 
+def _map_to_course_items(
+    raw_items: list[dict[str, Any]],
+    *,
+    course_code: str,
+    title_key: str,
+    date_key: str,
+    item_type_of: Callable[[dict[str, Any]], ItemType],
+) -> list[CourseItem]:
+    items = []
+    for raw in raw_items:
+        date_value = raw.get(date_key)
+        if date_value is None:
+            continue
+        items.append(
+            CourseItem.build(
+                course=course_code,
+                title=raw[title_key],
+                item_type=item_type_of(raw),
+                due_date=datetime.fromisoformat(date_value),
+                source="canvas",
+                source_url=raw["html_url"],
+                extraction_confidence="direct",
+            )
+        )
+    return items
+
+
 def _classify_assignment(assignment: dict[str, Any]) -> ItemType:
     submission_types = assignment.get("submission_types") or []
     if "online_quiz" in submission_types:
         return "quiz"
-    if "exam" in assignment["name"].lower():
-        return "exam"
     return "assignment"

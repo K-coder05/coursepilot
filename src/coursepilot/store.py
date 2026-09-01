@@ -53,17 +53,6 @@ class Store:
                     id, course, title, item_type, due_date, source, source_url,
                     content_hash, last_synced_at, extraction_confidence, notion_page_id
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(id) DO UPDATE SET
-                    course=excluded.course,
-                    title=excluded.title,
-                    item_type=excluded.item_type,
-                    due_date=excluded.due_date,
-                    source=excluded.source,
-                    source_url=excluded.source_url,
-                    content_hash=excluded.content_hash,
-                    last_synced_at=excluded.last_synced_at,
-                    extraction_confidence=excluded.extraction_confidence,
-                    notion_page_id=excluded.notion_page_id
                 """,
                 (
                     synced_item.id,

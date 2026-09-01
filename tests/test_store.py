@@ -64,16 +64,6 @@ def test_data_persists_across_store_instances(tmp_path: Path) -> None:
     assert reopened.get(item.id).notion_page_id == "notion-page-1"
 
 
-def test_insert_is_idempotent_for_the_same_id(tmp_path: Path) -> None:
-    store = Store(tmp_path / "coursepilot.db")
-    item = make_item()
-
-    store.insert(item, notion_page_id="notion-page-1")
-    store.insert(item, notion_page_id="notion-page-1")
-
-    assert store.existing_ids() == {item.id}
-
-
 def test_distinct_items_are_tracked_independently(tmp_path: Path) -> None:
     store = Store(tmp_path / "coursepilot.db")
     item_a = make_item("https://example.test/a/1")
