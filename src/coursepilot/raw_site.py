@@ -4,7 +4,7 @@ from typing import Protocol
 import httpx
 
 from coursepilot.extraction import ExtractedItem
-from coursepilot.models import CourseItem
+from coursepilot.run import FetchResult
 from coursepilot.validation import ValidationResult, validate_extracted_items
 
 
@@ -40,13 +40,15 @@ class RawSiteSource:
     """Adapts the raw-site fetch/extract/validate pipeline to the CourseItemSource
     protocol, so raw-site items flow through the exact same sync engine as Canvas.
 
-    Items that fail validation are dropped rather than surfaced -- run() has no
-    rejected-item report; that's only available through the dry-run command.
+    Items that fail validation are reported back to run() as rejected rather than
+    dropped, so they still surface in the CLI run summary even though they're
+    never written to Notion.
     """
 
     fetcher: HtmlFetcher
     extractor: ItemExtractor
     url: str
 
-    def fetch_course_items(self) -> list[CourseItem]:
-        return fetch_and_validate(fetcher=self.fetcher, extractor=self.extractor, url=self.url).items
+    def fetch_course_items(self) -> FetchResult:
+        result = fetch_and_validate(fetcher=self.fetcher, extractor=self.extractor, url=self.url)
+        return FetchResult(course_items=result.items, rejected=result.rejected)

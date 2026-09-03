@@ -8,6 +8,8 @@ _MODEL = "claude-opus-4-8"
 
 _TOOL_NAME = "extract_course_items"
 
+_ITEM_FIELDS = ("title", "item_type", "due_date", "course", "extraction_confidence")
+
 _SYSTEM_PROMPT = (
     "You extract assignments, exams, and quizzes from the HTML of a course "
     "website. For each item found, report its title, type, due date, and "
@@ -102,4 +104,10 @@ class LLMExtractor:
                 f"(stop_reason={response.stop_reason!r})"
             )
         raw_items = cast(list[dict[str, Any]], tool_use.input["items"])
-        return [ExtractedItem(**item) for item in raw_items]
+        # Default a missing field to "" instead of letting ExtractedItem(**item) raise --
+        # a field the model dropped despite the strict schema must still surface as a
+        # rejected item downstream, not crash the whole extraction call.
+        return [
+            ExtractedItem(**{field: item.get(field, "") for field in _ITEM_FIELDS})
+            for item in raw_items
+        ]

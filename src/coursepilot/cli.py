@@ -13,16 +13,27 @@ from coursepilot.raw_site import RawSiteFetcher, RawSiteSource
 from coursepilot.run import RunResult
 from coursepilot.run import run as run_pipeline
 from coursepilot.store import Store
+from coursepilot.validation import RejectedItem
 
 app = typer.Typer()
 
 
+def _format_rejected_lines(rejected: list[RejectedItem]) -> list[str]:
+    lines = [f"Rejected {len(rejected)} item(s):"]
+    for item in rejected:
+        lines.append(f"  - {item.title}: {item.reason}")
+    return lines
+
+
 def format_summary(result: RunResult) -> str:
-    return (
+    lines = [
         f"{result.total} items: {result.inserted} inserted, {result.updated} updated, "
         f"{result.archived} archived, {result.reactivated} reactivated, "
         f"{result.skipped} skipped."
-    )
+    ]
+    if result.rejected:
+        lines.extend(_format_rejected_lines(result.rejected))
+    return "\n".join(lines)
 
 
 def format_dry_run_report(result: DryRunResult) -> str:
@@ -33,9 +44,7 @@ def format_dry_run_report(result: DryRunResult) -> str:
             f"  - [{item.item_type}] {item.title} ({item.course}) due "
             f"{item.due_date.isoformat()} [{item.extraction_confidence}]"
         )
-    lines.append(f"Rejected {len(result.rejected)} item(s):")
-    for rejected in result.rejected:
-        lines.append(f"  - {rejected.title}: {rejected.reason}")
+    lines.extend(_format_rejected_lines(result.rejected))
     return "\n".join(lines)
 
 

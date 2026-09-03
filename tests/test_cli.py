@@ -8,30 +8,56 @@ from coursepilot.validation import RejectedItem
 
 
 def test_format_summary_with_some_inserted_and_some_skipped() -> None:
-    result = RunResult(total=5, inserted=3, updated=0, archived=0, reactivated=0, skipped=2)
+    result = RunResult(
+        total=5, inserted=3, updated=0, archived=0, reactivated=0, skipped=2, rejected=[]
+    )
 
     assert format_summary(result) == "5 items: 3 inserted, 0 updated, 0 archived, 0 reactivated, 2 skipped."
 
 
 def test_format_summary_with_nothing_new() -> None:
-    result = RunResult(total=4, inserted=0, updated=0, archived=0, reactivated=0, skipped=4)
+    result = RunResult(
+        total=4, inserted=0, updated=0, archived=0, reactivated=0, skipped=4, rejected=[]
+    )
 
     assert format_summary(result) == "4 items: 0 inserted, 0 updated, 0 archived, 0 reactivated, 4 skipped."
 
 
 def test_format_summary_with_no_items_at_all() -> None:
-    result = RunResult(total=0, inserted=0, updated=0, archived=0, reactivated=0, skipped=0)
+    result = RunResult(
+        total=0, inserted=0, updated=0, archived=0, reactivated=0, skipped=0, rejected=[]
+    )
 
     assert format_summary(result) == "0 items: 0 inserted, 0 updated, 0 archived, 0 reactivated, 0 skipped."
 
 
 def test_format_summary_with_updates_archives_and_reactivations() -> None:
-    result = RunResult(total=10, inserted=1, updated=2, archived=3, reactivated=4, skipped=0)
+    result = RunResult(
+        total=10, inserted=1, updated=2, archived=3, reactivated=4, skipped=0, rejected=[]
+    )
 
     assert (
         format_summary(result)
         == "10 items: 1 inserted, 2 updated, 3 archived, 4 reactivated, 0 skipped."
     )
+
+
+def test_format_summary_lists_rejected_items_with_reasons() -> None:
+    result = RunResult(
+        total=1,
+        inserted=0,
+        updated=0,
+        archived=0,
+        reactivated=0,
+        skipped=0,
+        rejected=[RejectedItem(title="Bad Item", reason="unparseable date")],
+    )
+
+    report = format_summary(result)
+
+    assert report.startswith("1 items: 0 inserted, 0 updated, 0 archived, 0 reactivated, 0 skipped.")
+    assert "Rejected 1 item(s):" in report
+    assert "Bad Item: unparseable date" in report
 
 
 def make_item() -> CourseItem:

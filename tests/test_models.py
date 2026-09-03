@@ -28,6 +28,15 @@ def test_build_computes_a_stable_id_from_source_and_source_url() -> None:
     assert item_a.id != ""
 
 
+def test_build_id_differs_across_sources_even_with_the_same_title_and_url() -> None:
+    item_a = CourseItem.build(**make_kwargs(source="canvas", source_url="https://example.test/x"))
+    item_b = CourseItem.build(
+        **make_kwargs(source="raw_site", source_url="https://example.test/x")
+    )
+
+    assert item_a.id != item_b.id
+
+
 def test_build_id_changes_when_source_url_changes() -> None:
     item_a = CourseItem.build(**make_kwargs())
     item_b = CourseItem.build(
