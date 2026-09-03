@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 from coursepilot.cli import format_dry_run_report, format_summary
 from coursepilot.dry_run import DryRunResult
 from coursepilot.models import CourseItem
-from coursepilot.run import RunResult
+from coursepilot.run import ItemChange, RunResult
 from coursepilot.validation import RejectedItem
 
 
@@ -58,6 +58,60 @@ def test_format_summary_lists_rejected_items_with_reasons() -> None:
     assert report.startswith("1 items: 0 inserted, 0 updated, 0 archived, 0 reactivated, 0 skipped.")
     assert "Rejected 1 item(s):" in report
     assert "Bad Item: unparseable date" in report
+
+
+def test_format_summary_lists_one_line_per_changed_item() -> None:
+    inserted_item = CourseItem.build(
+        course="CS 162",
+        title="Homework 3",
+        item_type="assignment",
+        due_date=datetime(2026, 9, 15, 23, 59, tzinfo=timezone.utc),
+        source="raw_site",
+        source_url="https://cs162.org/assignments",
+        extraction_confidence="llm_high",
+    )
+    archived_item = CourseItem.build(
+        course="DATA C104-LEC-001",
+        title="Homework 2",
+        item_type="assignment",
+        due_date=datetime(2026, 9, 10, 23, 59, tzinfo=timezone.utc),
+        source="canvas",
+        source_url="https://bcourses.berkeley.edu/courses/1/assignments/2",
+        extraction_confidence="direct",
+    )
+    result = RunResult(
+        total=2,
+        inserted=1,
+        updated=0,
+        archived=1,
+        reactivated=0,
+        skipped=0,
+        rejected=[],
+        changes=[
+            ItemChange(action="inserted", item=inserted_item),
+            ItemChange(action="archived", item=archived_item),
+        ],
+    )
+
+    report = format_summary(result)
+
+    assert (
+        "  - [inserted] Homework 3 (CS 162) due 2026-09-15T23:59:00+00:00" in report
+    )
+    assert (
+        "  - [archived] Homework 2 (DATA C104-LEC-001) due 2026-09-10T23:59:00+00:00"
+        in report
+    )
+
+
+def test_format_summary_has_no_change_lines_when_nothing_changed() -> None:
+    result = RunResult(
+        total=1, inserted=0, updated=0, archived=0, reactivated=0, skipped=1, rejected=[]
+    )
+
+    report = format_summary(result)
+
+    assert report == "1 items: 0 inserted, 0 updated, 0 archived, 0 reactivated, 1 skipped."
 
 
 def make_item() -> CourseItem:
