@@ -113,6 +113,25 @@ def test_extract_sends_the_html_as_the_user_message() -> None:
     assert payload["messages"] == [{"role": "user", "content": "<html>page content</html>"}]
 
 
+def test_extract_defaults_a_field_missing_from_the_tool_response_instead_of_crashing() -> None:
+    extractor, _ = make_extractor(
+        [
+            {
+                "title": "Homework 3",
+                "item_type": "assignment",
+                "due_date": "2026-09-15T23:59:00-07:00",
+                # "course" omitted entirely, unlike what the tool schema requires.
+                "extraction_confidence": "llm_high",
+            }
+        ]
+    )
+
+    items = extractor.extract("<html>Homework 3 due Sept 15</html>")
+
+    assert len(items) == 1
+    assert items[0].course == ""
+
+
 def test_extract_raises_a_clear_error_when_the_model_returns_no_tool_use() -> None:
     extractor, _ = make_extractor_with_body(refusal_body())
 

@@ -64,21 +64,24 @@ def test_raw_site_source_fetch_course_items_returns_validated_items() -> None:
         url=URL,
     )
 
-    items = source.fetch_course_items()
+    result = source.fetch_course_items()
 
-    assert len(items) == 1
-    assert items[0].title == "Homework 3"
-    assert items[0].source == "raw_site"
-    assert items[0].source_url == URL
+    assert len(result.course_items) == 1
+    assert result.course_items[0].title == "Homework 3"
+    assert result.course_items[0].source == "raw_site"
+    assert result.course_items[0].source_url == URL
+    assert result.rejected == []
 
 
-def test_raw_site_source_drops_items_that_fail_validation() -> None:
+def test_raw_site_source_reports_items_that_fail_validation_as_rejected() -> None:
     source = RawSiteSource(
         fetcher=FakeFetcher("<html></html>"),
         extractor=FakeExtractor([make_extracted(due_date="not a date")]),
         url=URL,
     )
 
-    items = source.fetch_course_items()
+    result = source.fetch_course_items()
 
-    assert items == []
+    assert result.course_items == []
+    assert len(result.rejected) == 1
+    assert result.rejected[0].title == "Homework 3"

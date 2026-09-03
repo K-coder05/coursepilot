@@ -5,6 +5,7 @@ from typing import Any
 import httpx
 
 from coursepilot.models import CourseItem, ItemType
+from coursepilot.run import FetchResult
 
 
 class CanvasClient:
@@ -17,12 +18,12 @@ class CanvasClient:
             headers={"Authorization": f"Bearer {token}"},
         )
 
-    def fetch_course_items(self) -> list[CourseItem]:
+    def fetch_course_items(self) -> FetchResult:
         course_code = self._fetch_course_code()
         assignments = self._fetch_assignments(course_code)
         assignment_titles = {item.title for item in assignments}
         exams = self._fetch_exam_calendar_events(course_code, exclude_titles=assignment_titles)
-        return [*assignments, *exams]
+        return FetchResult(course_items=[*assignments, *exams], rejected=[])
 
     def _fetch_course_code(self) -> str:
         response = self._client.get(f"/api/v1/courses/{self._course_id}")

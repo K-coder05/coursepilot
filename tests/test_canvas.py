@@ -37,7 +37,7 @@ def test_fetch_course_items_maps_assignment_to_course_item() -> None:
         return_value=httpx.Response(200, json=[])
     )
 
-    items = make_client().fetch_course_items()
+    items = make_client().fetch_course_items().course_items
 
     assert len(items) == 1
     item = items[0]
@@ -48,6 +48,23 @@ def test_fetch_course_items_maps_assignment_to_course_item() -> None:
     assert item.source == "canvas"
     assert item.source_url == f"{BASE_URL}/courses/1/assignments/42"
     assert item.extraction_confidence == "direct"
+
+
+@respx.mock
+def test_fetch_course_items_never_reports_rejected_items() -> None:
+    respx.get(f"{BASE_URL}/api/v1/courses/{COURSE_ID}").mock(
+        return_value=httpx.Response(200, json={"course_code": "DATA C104-LEC-001"})
+    )
+    respx.get(f"{BASE_URL}/api/v1/courses/{COURSE_ID}/assignments").mock(
+        return_value=httpx.Response(200, json=[])
+    )
+    respx.get(f"{BASE_URL}/api/v1/calendar_events").mock(
+        return_value=httpx.Response(200, json=[])
+    )
+
+    result = make_client().fetch_course_items()
+
+    assert result.rejected == []
 
 
 @respx.mock
@@ -73,7 +90,7 @@ def test_fetch_course_items_classifies_online_quiz_submission_type_as_quiz() -> 
         return_value=httpx.Response(200, json=[])
     )
 
-    items = make_client().fetch_course_items()
+    items = make_client().fetch_course_items().course_items
 
     assert items[0].item_type == "quiz"
 
@@ -101,7 +118,7 @@ def test_fetch_course_items_skips_assignments_without_due_date() -> None:
         return_value=httpx.Response(200, json=[])
     )
 
-    items = make_client().fetch_course_items()
+    items = make_client().fetch_course_items().course_items
 
     assert items == []
 
@@ -128,7 +145,7 @@ def test_fetch_course_items_maps_calendar_event_to_exam() -> None:
         )
     )
 
-    items = make_client().fetch_course_items()
+    items = make_client().fetch_course_items().course_items
 
     assert len(items) == 1
     item = items[0]
@@ -171,7 +188,7 @@ def test_fetch_course_items_excludes_calendar_events_already_covered_by_an_assig
         )
     )
 
-    items = make_client().fetch_course_items()
+    items = make_client().fetch_course_items().course_items
 
     assert len(items) == 1
     assert items[0].source_url == f"{BASE_URL}/courses/1/assignments/45"
@@ -191,7 +208,7 @@ def test_fetch_course_items_skips_calendar_events_without_start_at() -> None:
         )
     )
 
-    items = make_client().fetch_course_items()
+    items = make_client().fetch_course_items().course_items
 
     assert items == []
 
@@ -208,7 +225,7 @@ def test_fetch_course_items_sends_bearer_token() -> None:
         return_value=httpx.Response(200, json=[])
     )
 
-    make_client().fetch_course_items()
+    make_client().fetch_course_items().course_items
 
     sent_request = course_route.calls.last.request
     assert sent_request.headers["Authorization"] == f"Bearer {TOKEN}"
@@ -252,7 +269,7 @@ def test_fetch_course_items_follows_link_header_pagination() -> None:
         return_value=httpx.Response(200, json=[])
     )
 
-    items = make_client().fetch_course_items()
+    items = make_client().fetch_course_items().course_items
 
     titles = {item.title for item in items}
     assert titles == {"Page 1 item", "Page 2 item"}

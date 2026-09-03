@@ -2,16 +2,20 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from coursepilot.models import CourseItem
-from coursepilot.run import run
+from coursepilot.run import FetchResult, run
 from coursepilot.store import Store
+from coursepilot.validation import RejectedItem
 
 
 class FakeSource:
-    def __init__(self, items: list[CourseItem]) -> None:
+    def __init__(
+        self, items: list[CourseItem], rejected: list[RejectedItem] | None = None
+    ) -> None:
         self._items = items
+        self._rejected = rejected or []
 
-    def fetch_course_items(self) -> list[CourseItem]:
-        return self._items
+    def fetch_course_items(self) -> FetchResult:
+        return FetchResult(course_items=self._items, rejected=self._rejected)
 
 
 class FakeNotionClient:
@@ -178,6 +182,26 @@ def test_run_archives_item_missing_from_the_current_fetch(tmp_path: Path) -> Non
     assert stored.active is False
 
 
+def test_run_archives_a_raw_site_item_missing_from_the_current_fetch(tmp_path: Path) -> None:
+    present = make_raw_site_item("https://example.test/raw-site/1")
+    removed = make_raw_site_item("https://example.test/raw-site/2")
+    store = Store(tmp_path / "coursepilot.db")
+    store.insert(present, notion_page_id="present-page")
+    store.insert(removed, notion_page_id="removed-page")
+    raw_site_client = FakeSource([present])
+    notion_client = FakeNotionClient()
+
+    result = run(
+        sources={"raw_site": raw_site_client}, store=store, notion_client=notion_client
+    )
+
+    assert result.archived == 1
+    assert notion_client.archived_page_ids == ["removed-page"]
+    stored = store.get(removed.id)
+    assert stored is not None
+    assert stored.active is False
+
+
 def test_run_reactivates_an_archived_item_that_reappears(tmp_path: Path) -> None:
     item = make_item()
     store = Store(tmp_path / "coursepilot.db")
@@ -191,6 +215,52 @@ def test_run_reactivates_an_archived_item_that_reappears(tmp_path: Path) -> None
     assert result.reactivated == 1
     assert result.skipped == 0
     assert notion_client.updated_pages == [("existing-page", item)]
+    stored = store.get(item.id)
+    assert stored is not None
+    assert stored.active is True
+
+
+def test_run_updates_notion_and_store_when_raw_site_item_content_changes(
+    tmp_path: Path,
+) -> None:
+    original = make_raw_site_item()
+    store = Store(tmp_path / "coursepilot.db")
+    store.insert(original, notion_page_id="existing-page")
+    changed = original.model_copy(
+        update={
+            "due_date": datetime(2026, 9, 20, 23, 59, tzinfo=timezone.utc),
+            "content_hash": "changed-hash",
+        }
+    )
+    raw_site_client = FakeSource([changed])
+    notion_client = FakeNotionClient()
+
+    result = run(
+        sources={"raw_site": raw_site_client}, store=store, notion_client=notion_client
+    )
+
+    assert result.updated == 1
+    assert result.inserted == 0
+    assert notion_client.updated_pages == [("existing-page", changed)]
+    stored = store.get(original.id)
+    assert stored is not None
+    assert stored.item.due_date == changed.due_date
+
+
+def test_run_reactivates_an_archived_raw_site_item_that_reappears(tmp_path: Path) -> None:
+    item = make_raw_site_item()
+    store = Store(tmp_path / "coursepilot.db")
+    store.insert(item, notion_page_id="existing-page")
+    store.archive(item.id)
+    raw_site_client = FakeSource([item])
+    notion_client = FakeNotionClient()
+
+    result = run(
+        sources={"raw_site": raw_site_client}, store=store, notion_client=notion_client
+    )
+
+    assert result.reactivated == 1
+    assert result.skipped == 0
     stored = store.get(item.id)
     assert stored is not None
     assert stored.active is True
@@ -273,3 +343,100 @@ def test_run_archives_only_the_source_whose_fetch_dropped_the_item(tmp_path: Pat
     raw_site_stored = store.get(raw_site_item.id)
     assert canvas_stored is not None and canvas_stored.active is False
     assert raw_site_stored is not None and raw_site_stored.active is True
+
+
+def test_rerunning_five_times_with_unchanged_data_across_both_sources_is_idempotent(
+    tmp_path: Path,
+) -> None:
+    canvas_item = make_item("https://example.test/a/1")
+    raw_site_item = make_raw_site_item()
+    store = Store(tmp_path / "coursepilot.db")
+    notion_client = FakeNotionClient()
+
+    def make_sources() -> dict[str, FakeSource]:
+        return {
+            "canvas": FakeSource([canvas_item]),
+            "raw_site": FakeSource([raw_site_item]),
+        }
+
+    results = [
+        run(sources=make_sources(), store=store, notion_client=notion_client)
+        for _ in range(5)
+    ]
+
+    first, *reruns = results
+    assert first.inserted == 2
+    for rerun_result in reruns:
+        assert rerun_result.inserted == 0
+        assert rerun_result.updated == 0
+        assert rerun_result.archived == 0
+        assert rerun_result.reactivated == 0
+        assert rerun_result.skipped == 2
+
+    assert store.existing_ids() == {canvas_item.id, raw_site_item.id}
+    assert len(notion_client.created_pages) == 2
+    assert notion_client.updated_pages == []
+    assert notion_client.archived_page_ids == []
+
+
+def test_run_surfaces_rejected_items_from_a_source_without_writing_them_to_notion(
+    tmp_path: Path,
+) -> None:
+    good_item = make_raw_site_item()
+    rejection = RejectedItem(title="Malformed reading", reason="unparseable date")
+    store = Store(tmp_path / "coursepilot.db")
+    notion_client = FakeNotionClient()
+
+    result = run(
+        sources={"raw_site": FakeSource([good_item], rejected=[rejection])},
+        store=store,
+        notion_client=notion_client,
+    )
+
+    assert result.rejected == [rejection]
+    assert result.inserted == 1
+    assert {i.id for i in notion_client.created_pages} == {good_item.id}
+    assert store.existing_ids() == {good_item.id}
+
+
+def test_run_collects_rejected_items_across_both_sources(tmp_path: Path) -> None:
+    canvas_rejection = RejectedItem(title="Bad canvas item", reason="malformed")
+    raw_site_rejection = RejectedItem(title="Bad raw-site item", reason="unparseable date")
+    store = Store(tmp_path / "coursepilot.db")
+    notion_client = FakeNotionClient()
+
+    result = run(
+        sources={
+            "canvas": FakeSource([], rejected=[canvas_rejection]),
+            "raw_site": FakeSource([], rejected=[raw_site_rejection]),
+        },
+        store=store,
+        notion_client=notion_client,
+    )
+
+    assert sorted(result.rejected, key=lambda r: r.title) == sorted(
+        [canvas_rejection, raw_site_rejection], key=lambda r: r.title
+    )
+
+
+def test_ids_never_collide_across_sources_even_with_the_same_title_and_url(
+    tmp_path: Path,
+) -> None:
+    same_url = "https://example.test/shared-path"
+    canvas_item = make_item(same_url, title="Homework 3")
+    raw_site_item = make_raw_site_item(same_url, title="Homework 3")
+    store = Store(tmp_path / "coursepilot.db")
+    notion_client = FakeNotionClient()
+
+    result = run(
+        sources={
+            "canvas": FakeSource([canvas_item]),
+            "raw_site": FakeSource([raw_site_item]),
+        },
+        store=store,
+        notion_client=notion_client,
+    )
+
+    assert canvas_item.id != raw_site_item.id
+    assert result.inserted == 2
+    assert store.existing_ids() == {canvas_item.id, raw_site_item.id}

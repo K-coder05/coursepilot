@@ -41,6 +41,14 @@ def test_unparseable_due_date_is_rejected_with_a_reason() -> None:
     assert result.rejected[0].reason
 
 
+def test_missing_due_date_is_rejected_without_crashing() -> None:
+    result = validate_extracted_items([make_extracted(due_date="")], source_url=SOURCE_URL)
+
+    assert result.items == []
+    assert len(result.rejected) == 1
+    assert result.rejected[0].title == "Homework 3"
+
+
 def test_timezone_naive_due_date_is_rejected() -> None:
     result = validate_extracted_items(
         [make_extracted(due_date="2026-09-15T23:59:00")], source_url=SOURCE_URL

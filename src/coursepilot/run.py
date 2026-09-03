@@ -3,10 +3,20 @@ from typing import Mapping, Protocol
 
 from coursepilot.models import CourseItem, Source
 from coursepilot.store import Store
+from coursepilot.validation import RejectedItem
+
+
+@dataclass(frozen=True)
+class FetchResult:
+    """What one source produced in a run: the CourseItems to sync, plus anything
+    that source rejected (e.g. an unparseable date) instead of coercing."""
+
+    course_items: list[CourseItem]
+    rejected: list[RejectedItem]
 
 
 class CourseItemSource(Protocol):
-    def fetch_course_items(self) -> list[CourseItem]: ...
+    def fetch_course_items(self) -> FetchResult: ...
 
 
 class PageSink(Protocol):
@@ -23,6 +33,7 @@ class RunResult:
     archived: int
     reactivated: int
     skipped: int
+    rejected: list[RejectedItem]
 
 
 def run(
@@ -43,10 +54,13 @@ def run(
     """
     inserted = updated = archived = reactivated = skipped = 0
     total = 0
+    rejected: list[RejectedItem] = []
     fetched_ids_by_source: dict[Source, set[str]] = {name: set() for name in sources}
 
     for name, source in sources.items():
-        items = source.fetch_course_items()
+        fetch_result = source.fetch_course_items()
+        items = fetch_result.course_items
+        rejected.extend(fetch_result.rejected)
         total += len(items)
         fetched_ids = fetched_ids_by_source[name]
 
@@ -87,4 +101,5 @@ def run(
         archived=archived,
         reactivated=reactivated,
         skipped=skipped,
+        rejected=rejected,
     )
