@@ -9,7 +9,7 @@ from coursepilot.dry_run import DryRunResult
 from coursepilot.dry_run import dry_run as dry_run_pipeline
 from coursepilot.extraction import LLMExtractor
 from coursepilot.notion import NotionClient
-from coursepilot.raw_site import RawSiteFetcher
+from coursepilot.raw_site import RawSiteFetcher, RawSiteSource
 from coursepilot.run import RunResult
 from coursepilot.run import run as run_pipeline
 from coursepilot.store import Store
@@ -41,7 +41,7 @@ def format_dry_run_report(result: DryRunResult) -> str:
 
 @app.command()
 def run() -> None:
-    """Fetch Canvas assignments/exams and insert any new ones into Notion."""
+    """Fetch Canvas and raw-site items and sync any changes into Notion."""
     load_dotenv()
     try:
         config = Config.from_env(os.environ)
@@ -54,12 +54,21 @@ def run() -> None:
         token=config.canvas_token,
         course_id=config.canvas_course_id,
     )
+    raw_site_source = RawSiteSource(
+        fetcher=RawSiteFetcher(),
+        extractor=LLMExtractor(api_key=config.anthropic_api_key),
+        url=config.raw_site_url,
+    )
     notion_client = NotionClient(
         token=config.notion_token, database_id=config.notion_database_id
     )
     store = Store(config.db_path)
 
-    result = run_pipeline(canvas_client=canvas_client, store=store, notion_client=notion_client)
+    result = run_pipeline(
+        sources={"canvas": canvas_client, "raw_site": raw_site_source},
+        store=store,
+        notion_client=notion_client,
+    )
     typer.echo(format_summary(result))
 
 

@@ -1,7 +1,7 @@
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Mapping, Protocol
 
-from coursepilot.models import CourseItem
+from coursepilot.models import CourseItem, Source
 from coursepilot.store import Store
 
 
@@ -26,53 +26,62 @@ class RunResult:
 
 
 def run(
-    *, canvas_client: CourseItemSource, store: Store, notion_client: PageSink
+    *,
+    sources: Mapping[Source, CourseItemSource],
+    store: Store,
+    notion_client: PageSink,
 ) -> RunResult:
-    """Fetch CourseItems from Canvas and sync them into the local store and Notion.
+    """Fetch CourseItems from every configured source and sync them into the local
+    store and Notion.
 
-    New ids are inserted; changed ids are updated in place; ids missing from the fetch
-    are archived (never deleted); an archived id reappearing is reactivated. The sole
-    seam: every adapter is injected, so this is reusable by the CLI now and a
-    scheduler later without restructuring.
+    New ids are inserted; changed ids are updated in place; ids missing from a
+    source's fetch are archived (never deleted) -- scoped to that source, so one
+    source's disappearing items never archive another source's rows; an archived id
+    reappearing is reactivated. Diff/write logic is identical regardless of which
+    source an item came from. The sole seam: every adapter is injected, so this is
+    reusable by the CLI now and a scheduler later without restructuring.
     """
-    items = canvas_client.fetch_course_items()
-
     inserted = updated = archived = reactivated = skipped = 0
-    fetched_ids: set[str] = set()
+    total = 0
+    fetched_ids_by_source: dict[Source, set[str]] = {name: set() for name in sources}
 
-    for item in items:
-        fetched_ids.add(item.id)
+    for name, source in sources.items():
+        items = source.fetch_course_items()
+        total += len(items)
+        fetched_ids = fetched_ids_by_source[name]
 
-        stored = store.get(item.id)
-        if stored is None:
-            notion_page_id = notion_client.create_page(item)
-            store.insert(item, notion_page_id=notion_page_id)
-            inserted += 1
-            continue
+        for item in items:
+            fetched_ids.add(item.id)
 
-        if stored.active and stored.item.content_hash == item.content_hash:
-            skipped += 1
-            continue
+            stored = store.get(item.id)
+            if stored is None:
+                notion_page_id = notion_client.create_page(item)
+                store.insert(item, notion_page_id=notion_page_id)
+                inserted += 1
+                continue
 
-        notion_client.update_page(stored.notion_page_id, item)
-        store.update(item)
-        if stored.active:
-            updated += 1
-        else:
-            reactivated += 1
+            if stored.active and stored.item.content_hash == item.content_hash:
+                skipped += 1
+                continue
 
-    # This ticket's sync engine only handles the Canvas source; archival is scoped
-    # to "canvas" so a future raw_site run sharing this store never touches its rows.
-    for missing_id in store.active_ids(source="canvas") - fetched_ids:
-        missing_stored = store.get(missing_id)
-        if missing_stored is None:
-            continue
-        notion_client.archive_page(missing_stored.notion_page_id)
-        store.archive(missing_id)
-        archived += 1
+            notion_client.update_page(stored.notion_page_id, item)
+            store.update(item)
+            if stored.active:
+                updated += 1
+            else:
+                reactivated += 1
+
+    for name, fetched_ids in fetched_ids_by_source.items():
+        for missing_id in store.active_ids(source=name) - fetched_ids:
+            missing_stored = store.get(missing_id)
+            if missing_stored is None:
+                continue
+            notion_client.archive_page(missing_stored.notion_page_id)
+            store.archive(missing_id)
+            archived += 1
 
     return RunResult(
-        total=len(items),
+        total=total,
         inserted=inserted,
         updated=updated,
         archived=archived,
