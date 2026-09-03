@@ -6,7 +6,7 @@ from coursepilot.run import run
 from coursepilot.store import Store
 
 
-class FakeCanvasClient:
+class FakeSource:
     def __init__(self, items: list[CourseItem]) -> None:
         self._items = items
 
@@ -45,13 +45,27 @@ def make_item(source_url: str = "https://example.test/a/1", title: str = "Homewo
     )
 
 
+def make_raw_site_item(
+    source_url: str = "https://example.test/raw-site/1", title: str = "Reading response 2"
+) -> CourseItem:
+    return CourseItem.build(
+        course="CS 162",
+        title=title,
+        item_type="assignment",
+        due_date=datetime(2026, 9, 15, 23, 59, tzinfo=timezone.utc),
+        source="raw_site",
+        source_url=source_url,
+        extraction_confidence="llm_high",
+    )
+
+
 def test_run_inserts_all_new_items_into_notion_and_store(tmp_path: Path) -> None:
     items = [make_item("https://example.test/a/1"), make_item("https://example.test/a/2")]
-    canvas_client = FakeCanvasClient(items)
+    canvas_client = FakeSource(items)
     notion_client = FakeNotionClient()
     store = Store(tmp_path / "coursepilot.db")
 
-    result = run(canvas_client=canvas_client, store=store, notion_client=notion_client)
+    result = run(sources={"canvas": canvas_client}, store=store, notion_client=notion_client)
 
     assert result.total == 2
     assert result.inserted == 2
@@ -62,11 +76,11 @@ def test_run_inserts_all_new_items_into_notion_and_store(tmp_path: Path) -> None
 
 def test_run_records_returned_notion_page_id_in_store(tmp_path: Path) -> None:
     item = make_item()
-    canvas_client = FakeCanvasClient([item])
+    canvas_client = FakeSource([item])
     notion_client = FakeNotionClient()
     store = Store(tmp_path / "coursepilot.db")
 
-    run(canvas_client=canvas_client, store=store, notion_client=notion_client)
+    run(sources={"canvas": canvas_client}, store=store, notion_client=notion_client)
 
     stored = store.get(item.id)
     assert stored is not None
@@ -77,12 +91,12 @@ def test_rerunning_with_unchanged_data_creates_no_duplicate_notion_pages(
     tmp_path: Path,
 ) -> None:
     items = [make_item("https://example.test/a/1"), make_item("https://example.test/a/2")]
-    canvas_client = FakeCanvasClient(items)
+    canvas_client = FakeSource(items)
     notion_client = FakeNotionClient()
     store = Store(tmp_path / "coursepilot.db")
 
-    first = run(canvas_client=canvas_client, store=store, notion_client=notion_client)
-    second = run(canvas_client=canvas_client, store=store, notion_client=notion_client)
+    first = run(sources={"canvas": canvas_client}, store=store, notion_client=notion_client)
+    second = run(sources={"canvas": canvas_client}, store=store, notion_client=notion_client)
 
     assert first.inserted == 2
     assert second.inserted == 0
@@ -96,10 +110,10 @@ def test_run_only_inserts_items_not_already_in_the_store(tmp_path: Path) -> None
     store = Store(tmp_path / "coursepilot.db")
     store.insert(already_synced, notion_page_id="pre-existing-page")
 
-    canvas_client = FakeCanvasClient([already_synced, new_item])
+    canvas_client = FakeSource([already_synced, new_item])
     notion_client = FakeNotionClient()
 
-    result = run(canvas_client=canvas_client, store=store, notion_client=notion_client)
+    result = run(sources={"canvas": canvas_client}, store=store, notion_client=notion_client)
 
     assert result.total == 2
     assert result.inserted == 1
@@ -117,10 +131,10 @@ def test_run_updates_notion_and_store_when_due_date_changes(tmp_path: Path) -> N
             "content_hash": "changed-hash",
         }
     )
-    canvas_client = FakeCanvasClient([changed])
+    canvas_client = FakeSource([changed])
     notion_client = FakeNotionClient()
 
-    result = run(canvas_client=canvas_client, store=store, notion_client=notion_client)
+    result = run(sources={"canvas": canvas_client}, store=store, notion_client=notion_client)
 
     assert result.updated == 1
     assert result.inserted == 0
@@ -135,10 +149,10 @@ def test_run_skips_unchanged_active_item_with_no_notion_call(tmp_path: Path) -> 
     item = make_item()
     store = Store(tmp_path / "coursepilot.db")
     store.insert(item, notion_page_id="existing-page")
-    canvas_client = FakeCanvasClient([item])
+    canvas_client = FakeSource([item])
     notion_client = FakeNotionClient()
 
-    result = run(canvas_client=canvas_client, store=store, notion_client=notion_client)
+    result = run(sources={"canvas": canvas_client}, store=store, notion_client=notion_client)
 
     assert result.skipped == 1
     assert result.updated == 0
@@ -152,10 +166,10 @@ def test_run_archives_item_missing_from_the_current_fetch(tmp_path: Path) -> Non
     store = Store(tmp_path / "coursepilot.db")
     store.insert(present, notion_page_id="present-page")
     store.insert(removed, notion_page_id="removed-page")
-    canvas_client = FakeCanvasClient([present])
+    canvas_client = FakeSource([present])
     notion_client = FakeNotionClient()
 
-    result = run(canvas_client=canvas_client, store=store, notion_client=notion_client)
+    result = run(sources={"canvas": canvas_client}, store=store, notion_client=notion_client)
 
     assert result.archived == 1
     assert notion_client.archived_page_ids == ["removed-page"]
@@ -169,10 +183,10 @@ def test_run_reactivates_an_archived_item_that_reappears(tmp_path: Path) -> None
     store = Store(tmp_path / "coursepilot.db")
     store.insert(item, notion_page_id="existing-page")
     store.archive(item.id)
-    canvas_client = FakeCanvasClient([item])
+    canvas_client = FakeSource([item])
     notion_client = FakeNotionClient()
 
-    result = run(canvas_client=canvas_client, store=store, notion_client=notion_client)
+    result = run(sources={"canvas": canvas_client}, store=store, notion_client=notion_client)
 
     assert result.reactivated == 1
     assert result.skipped == 0
@@ -187,9 +201,9 @@ def test_run_archive_then_restore_across_three_runs(tmp_path: Path) -> None:
     store = Store(tmp_path / "coursepilot.db")
     notion_client = FakeNotionClient()
 
-    first = run(canvas_client=FakeCanvasClient([item]), store=store, notion_client=notion_client)
-    second = run(canvas_client=FakeCanvasClient([]), store=store, notion_client=notion_client)
-    third = run(canvas_client=FakeCanvasClient([item]), store=store, notion_client=notion_client)
+    first = run(sources={"canvas": FakeSource([item])}, store=store, notion_client=notion_client)
+    second = run(sources={"canvas": FakeSource([])}, store=store, notion_client=notion_client)
+    third = run(sources={"canvas": FakeSource([item])}, store=store, notion_client=notion_client)
 
     assert first.inserted == 1
     assert second.archived == 1
@@ -200,25 +214,62 @@ def test_run_archive_then_restore_across_three_runs(tmp_path: Path) -> None:
 
 
 def test_run_archiving_never_touches_other_sources(tmp_path: Path) -> None:
-    raw_site_item = CourseItem.build(
-        course="DATA C104-LEC-001",
-        title="Raw site item",
-        item_type="assignment",
-        due_date=datetime(2026, 9, 15, 23, 59, tzinfo=timezone.utc),
-        source="raw_site",
-        source_url="https://example.test/raw-site/1",
-        extraction_confidence="direct",
-    )
+    raw_site_item = make_raw_site_item()
     fetched_item = make_item("https://example.test/a/1")
     store = Store(tmp_path / "coursepilot.db")
     store.insert(raw_site_item, notion_page_id="raw-site-page")
-    canvas_client = FakeCanvasClient([fetched_item])
+    canvas_client = FakeSource([fetched_item])
     notion_client = FakeNotionClient()
 
-    result = run(canvas_client=canvas_client, store=store, notion_client=notion_client)
+    result = run(sources={"canvas": canvas_client}, store=store, notion_client=notion_client)
 
     assert result.archived == 0
     assert notion_client.archived_page_ids == []
     stored = store.get(raw_site_item.id)
     assert stored is not None
     assert stored.active is True
+
+
+def test_run_processes_canvas_and_raw_site_together_in_one_invocation(
+    tmp_path: Path,
+) -> None:
+    canvas_item = make_item("https://example.test/a/1")
+    raw_site_item = make_raw_site_item()
+    store = Store(tmp_path / "coursepilot.db")
+    notion_client = FakeNotionClient()
+
+    result = run(
+        sources={
+            "canvas": FakeSource([canvas_item]),
+            "raw_site": FakeSource([raw_site_item]),
+        },
+        store=store,
+        notion_client=notion_client,
+    )
+
+    assert result.total == 2
+    assert result.inserted == 2
+    assert {i.id for i in notion_client.created_pages} == {canvas_item.id, raw_site_item.id}
+    assert store.existing_ids() == {canvas_item.id, raw_site_item.id}
+
+
+def test_run_archives_only_the_source_whose_fetch_dropped_the_item(tmp_path: Path) -> None:
+    canvas_item = make_item("https://example.test/a/1")
+    raw_site_item = make_raw_site_item()
+    store = Store(tmp_path / "coursepilot.db")
+    store.insert(canvas_item, notion_page_id="canvas-page")
+    store.insert(raw_site_item, notion_page_id="raw-site-page")
+    notion_client = FakeNotionClient()
+
+    result = run(
+        sources={"canvas": FakeSource([]), "raw_site": FakeSource([raw_site_item])},
+        store=store,
+        notion_client=notion_client,
+    )
+
+    assert result.archived == 1
+    assert notion_client.archived_page_ids == ["canvas-page"]
+    canvas_stored = store.get(canvas_item.id)
+    raw_site_stored = store.get(raw_site_item.id)
+    assert canvas_stored is not None and canvas_stored.active is False
+    assert raw_site_stored is not None and raw_site_stored.active is True

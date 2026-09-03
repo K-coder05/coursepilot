@@ -1,15 +1,16 @@
 from dataclasses import dataclass
 from typing import Mapping
 
+_RAW_SITE_REQUIRED_KEYS = ("RAW_SITE_URL", "ANTHROPIC_API_KEY")
+
 _REQUIRED_KEYS = (
     "CANVAS_BASE_URL",
     "CANVAS_TOKEN",
     "CANVAS_COURSE_ID",
     "NOTION_TOKEN",
     "NOTION_DATABASE_ID",
+    *_RAW_SITE_REQUIRED_KEYS,
 )
-
-_RAW_SITE_REQUIRED_KEYS = ("RAW_SITE_URL", "ANTHROPIC_API_KEY")
 
 
 def _require(env: Mapping[str, str], keys: tuple[str, ...]) -> None:
@@ -25,6 +26,8 @@ class Config:
     canvas_course_id: str
     notion_token: str
     notion_database_id: str
+    raw_site_url: str
+    anthropic_api_key: str
     db_path: str
 
     @classmethod
@@ -36,6 +39,8 @@ class Config:
             canvas_course_id=env["CANVAS_COURSE_ID"],
             notion_token=env["NOTION_TOKEN"],
             notion_database_id=env["NOTION_DATABASE_ID"],
+            raw_site_url=env["RAW_SITE_URL"],
+            anthropic_api_key=env["ANTHROPIC_API_KEY"],
             db_path=env.get("COURSEPILOT_DB_PATH", "coursepilot.db"),
         )
 

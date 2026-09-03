@@ -1,17 +1,8 @@
 from dataclasses import dataclass
-from typing import Protocol
 
-from coursepilot.extraction import ExtractedItem
 from coursepilot.models import CourseItem
-from coursepilot.validation import RejectedItem, validate_extracted_items
-
-
-class HtmlFetcher(Protocol):
-    def fetch(self, url: str) -> str: ...
-
-
-class ItemExtractor(Protocol):
-    def extract(self, html: str) -> list[ExtractedItem]: ...
+from coursepilot.raw_site import HtmlFetcher, ItemExtractor, fetch_and_validate
+from coursepilot.validation import RejectedItem
 
 
 @dataclass(frozen=True)
@@ -22,7 +13,5 @@ class DryRunResult:
 
 def dry_run(*, fetcher: HtmlFetcher, extractor: ItemExtractor, url: str) -> DryRunResult:
     """Fetch, extract, and validate a raw course site without writing anywhere."""
-    html = fetcher.fetch(url)
-    raw_items = extractor.extract(html)
-    result = validate_extracted_items(raw_items, source_url=url)
+    result = fetch_and_validate(fetcher=fetcher, extractor=extractor, url=url)
     return DryRunResult(would_create=result.items, rejected=result.rejected)
