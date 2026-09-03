@@ -76,6 +76,9 @@ def test_run_inserts_all_new_items_into_notion_and_store(tmp_path: Path) -> None
     assert result.skipped == 0
     assert {i.id for i in notion_client.created_pages} == {i.id for i in items}
     assert store.existing_ids() == {i.id for i in items}
+    assert {(c.action, c.item.id) for c in result.changes} == {
+        ("inserted", i.id) for i in items
+    }
 
 
 def test_run_records_returned_notion_page_id_in_store(tmp_path: Path) -> None:
@@ -147,6 +150,7 @@ def test_run_updates_notion_and_store_when_due_date_changes(tmp_path: Path) -> N
     stored = store.get(original.id)
     assert stored is not None
     assert stored.item.due_date == changed.due_date
+    assert [(c.action, c.item.id) for c in result.changes] == [("updated", changed.id)]
 
 
 def test_run_skips_unchanged_active_item_with_no_notion_call(tmp_path: Path) -> None:
@@ -162,6 +166,7 @@ def test_run_skips_unchanged_active_item_with_no_notion_call(tmp_path: Path) -> 
     assert result.updated == 0
     assert notion_client.updated_pages == []
     assert notion_client.created_pages == []
+    assert result.changes == []
 
 
 def test_run_archives_item_missing_from_the_current_fetch(tmp_path: Path) -> None:
@@ -180,6 +185,7 @@ def test_run_archives_item_missing_from_the_current_fetch(tmp_path: Path) -> Non
     stored = store.get(removed.id)
     assert stored is not None
     assert stored.active is False
+    assert [(c.action, c.item.id) for c in result.changes] == [("archived", removed.id)]
 
 
 def test_run_archives_a_raw_site_item_missing_from_the_current_fetch(tmp_path: Path) -> None:
@@ -218,6 +224,7 @@ def test_run_reactivates_an_archived_item_that_reappears(tmp_path: Path) -> None
     stored = store.get(item.id)
     assert stored is not None
     assert stored.active is True
+    assert [(c.action, c.item.id) for c in result.changes] == [("reactivated", item.id)]
 
 
 def test_run_updates_notion_and_store_when_raw_site_item_content_changes(

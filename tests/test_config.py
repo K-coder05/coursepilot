@@ -13,6 +13,7 @@ REQUIRED_ENV = {
     "CANVAS_COURSE_ID": "12345",
     "NOTION_TOKEN": "notion-token-xyz",
     "NOTION_DATABASE_ID": "db-abc-123",
+    "TIMEZONE": "America/Los_Angeles",
     **RAW_SITE_ENV,
 }
 
@@ -27,6 +28,7 @@ def test_from_env_builds_config_from_all_required_vars() -> None:
     assert config.notion_database_id == "db-abc-123"
     assert config.raw_site_url == "https://cs162.org/assignments"
     assert config.anthropic_api_key == "sk-ant-test"
+    assert config.timezone == "America/Los_Angeles"
     assert config.db_path == "coursepilot.db"
 
 

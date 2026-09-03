@@ -9,6 +9,7 @@ _REQUIRED_KEYS = (
     "CANVAS_COURSE_ID",
     "NOTION_TOKEN",
     "NOTION_DATABASE_ID",
+    "TIMEZONE",
     *_RAW_SITE_REQUIRED_KEYS,
 )
 
@@ -28,6 +29,9 @@ class Config:
     notion_database_id: str
     raw_site_url: str
     anthropic_api_key: str
+    # Not yet applied to due_date normalization -- captured now so it's already
+    # in place for the source adapters that will read it.
+    timezone: str
     db_path: str
 
     @classmethod
@@ -41,6 +45,7 @@ class Config:
             notion_database_id=env["NOTION_DATABASE_ID"],
             raw_site_url=env["RAW_SITE_URL"],
             anthropic_api_key=env["ANTHROPIC_API_KEY"],
+            timezone=env["TIMEZONE"],
             db_path=env.get("COURSEPILOT_DB_PATH", "coursepilot.db"),
         )
 

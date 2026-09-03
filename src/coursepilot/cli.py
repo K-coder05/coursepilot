@@ -10,7 +10,7 @@ from coursepilot.dry_run import dry_run as dry_run_pipeline
 from coursepilot.extraction import LLMExtractor
 from coursepilot.notion import NotionClient
 from coursepilot.raw_site import RawSiteFetcher, RawSiteSource
-from coursepilot.run import RunResult
+from coursepilot.run import ItemChange, RunResult
 from coursepilot.run import run as run_pipeline
 from coursepilot.store import Store
 from coursepilot.validation import RejectedItem
@@ -25,12 +25,21 @@ def _format_rejected_lines(rejected: list[RejectedItem]) -> list[str]:
     return lines
 
 
+def _format_change_lines(changes: list[ItemChange]) -> list[str]:
+    return [
+        f"  - [{change.action}] {change.item.title} ({change.item.course}) "
+        f"due {change.item.due_date.isoformat()}"
+        for change in changes
+    ]
+
+
 def format_summary(result: RunResult) -> str:
     lines = [
         f"{result.total} items: {result.inserted} inserted, {result.updated} updated, "
         f"{result.archived} archived, {result.reactivated} reactivated, "
         f"{result.skipped} skipped."
     ]
+    lines.extend(_format_change_lines(result.changes))
     if result.rejected:
         lines.extend(_format_rejected_lines(result.rejected))
     return "\n".join(lines)
